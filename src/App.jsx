@@ -167,35 +167,47 @@ export default function App() {
     fetchTotalCount(); // استدعاء الدالة عند تحميل المكون
   }, [pageNumber, pageSize, load, fetchTotalDollars, fetchTotalCount]);
 
-  async function searchByEmail() {
-    const email = searchEmail.trim();
-    if (!email) return;
-    setSearching(true);
-    setLoadError(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/search?email=${encodeURIComponent(email)}`);
-      if (res.status === 404) {
-        setSearchActive(true);
-        setAccounts([]);
-        return;
-      }
-      if (!res.ok) {
-        const msg = await readErrorMessage(res);
-        throw new Error(msg || "Couldn't search for that account. Please try again.");
-      }
-      const account = await res.json();
+async function searchByEmail() {
+  const email = searchEmail.trim();
+
+  if (!email) return;
+
+  setSearching(true);
+  setLoadError(null);
+
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/search?email=${encodeURIComponent(email)}`
+    );
+
+    if (res.status === 404) {
       setSearchActive(true);
-      setAccounts(account ? [account] : []);
-    } catch (err) {
-      setLoadError(
-        err instanceof TypeError
-          ? "Couldn't reach the API. Check the base URL and that the server is running."
-          : err.message || "Something went wrong searching for that account."
-      );
-    } finally {
-      setSearching(false);
+      setAccounts([]);
+      return;
     }
+
+    if (!res.ok) {
+      const msg = await readErrorMessage(res);
+      throw new Error(
+        msg || "Couldn't search for that account. Please try again."
+      );
+    }
+
+    const accounts = await res.json();
+
+    setSearchActive(true);
+    setAccounts(Array.isArray(accounts) ? accounts : []);
+
+  } catch (err) {
+    setLoadError(
+      err instanceof TypeError
+        ? "Couldn't reach the API. Check the base URL and that the server is running."
+        : err.message || "Something went wrong searching for that account."
+    );
+  } finally {
+    setSearching(false);
   }
+}
 
   function clearSearch() {
     setSearchEmail("");
@@ -356,7 +368,7 @@ export default function App() {
             <Search size={16} className="text-muted" />
             <input
               type="text"
-              placeholder="Search by exact email…"
+              placeholder="Search by email…"
               value={searchEmail}
               onChange={(e) => setSearchEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && searchByEmail()}
@@ -643,7 +655,7 @@ function AddModal({ onClose, onSubmit }) {
       <form className="modal-form" onSubmit={submit}>
         <label>
           Email Address
-          <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+          <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name" />
         </label>
         <label>
           Starting Balance
