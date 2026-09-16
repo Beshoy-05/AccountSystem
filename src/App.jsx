@@ -21,7 +21,7 @@ import {
 // for edit/use-dollars requests — no index fallback.
 // ---------------------------------------------------------------------------
 
-const API_BASE_URL = "http://accountsystem.runasp.net/api/Account";
+const API_BASE_URL = "https://accountsystem.runasp.net/api/Account";
 
 const FONT_LINK_ID = "ledger-fonts";
 
