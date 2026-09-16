@@ -643,7 +643,7 @@ function AddModal({ onClose, onSubmit }) {
       <form className="modal-form" onSubmit={submit}>
         <label>
           Email Address
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+          <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
         </label>
         <label>
           Starting Balance
@@ -691,7 +691,7 @@ function EditModal({ account, onClose, onSubmit }) {
       <form className="modal-form" onSubmit={submit}>
         <label>
           Email Address
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         <label>
           Account Balance
