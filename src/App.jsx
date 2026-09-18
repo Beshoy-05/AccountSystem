@@ -13,7 +13,7 @@ import {
   Search,
   Wallet,
   Users,
-  Database // أيقونة جديدة للعدد الكلي للحسابات في قاعدة البيانات
+  Database, // أيقونة جديدة للعدد الكلي للحسابات في قاعدة البيانات
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,11 @@ async function readErrorMessage(res) {
     if (!text) return null;
     try {
       const data = JSON.parse(text);
-      const raw = data.message || data.title || data.error || (typeof data === "string" ? data : null);
+      const raw =
+        data.message ||
+        data.title ||
+        data.error ||
+        (typeof data === "string" ? data : null);
       return raw ? cleanExceptionText(raw) : null;
     } catch {
       return cleanExceptionText(text);
@@ -55,6 +59,19 @@ function cleanExceptionText(text) {
   const match = beforeStack.match(/(?:Exception|Error)\s*:\s*(.+)$/s);
   const cleaned = (match ? match[1] : beforeStack).trim();
   if (!cleaned || cleaned.length > 200) return null;
+
+  const lower = cleaned.toLowerCase();
+  if (lower.includes("already exist"))
+    return "This email is already registered.";
+  if (lower.includes("account not found") || lower.includes("no account found"))
+    return "The account could not be found. It may have already been deleted.";
+  if (lower.includes("cannot take negative"))
+    return "The page size cannot be negative.";
+  if (lower.includes("amount cannot be negative"))
+    return "The amount cannot be negative.";
+  if (lower.includes("insufficient dollars"))
+    return "You don't have enough dollars in this account.";
+
   return cleaned;
 }
 
@@ -88,6 +105,7 @@ export default function App() {
   const [filterBox, setFilterBox] = useState(false);
   const [filterDiscount, setFilterDiscount] = useState(false);
   const [minDollars, setMinDollars] = useState("");
+  const [dollarAmount, setDollarAmount] = useState("");
 
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -97,7 +115,7 @@ export default function App() {
   const [searching, setSearching] = useState(false);
 
   const [totalDollars, setTotalDollars] = useState(null);
-  
+
   // حالة جديدة لتخزين العدد الكلي للحسابات
   const [totalCount, setTotalCount] = useState(null);
 
@@ -112,10 +130,15 @@ export default function App() {
       if (filterBox) params.set("hasBox", "true");
       if (filterDiscount) params.set("hasDiscount", "true");
       if (minDollars !== "") params.set("minDollars", String(minDollars));
+      if (dollarAmount !== "") {
+        params.set("dollarAmount", String(dollarAmount));
+      }
       const hasFilters = [...params.keys()].length > 0;
       params.set("PageSize", String(pageSize));
       params.set("PageNumber", String(pageNumber));
-      const url = hasFilters ? `${API_BASE_URL}/filter?${params}` : `${API_BASE_URL}?${params}`;
+      const url = hasFilters
+        ? `${API_BASE_URL}/filter?${params}`
+        : `${API_BASE_URL}?${params}`;
       const res = await fetch(url);
       if (!res.ok) {
         const msg = await readErrorMessage(res);
@@ -131,12 +154,12 @@ export default function App() {
       setLoadError(
         err instanceof TypeError
           ? "Couldn't reach the API. Check the base URL and that the server is running."
-          : err.message || "Something went wrong loading accounts."
+          : err.message || "Something went wrong loading accounts.",
       );
     } finally {
       setLoading(false);
     }
-  }, [filterBox, filterDiscount, minDollars, pageNumber, pageSize]);
+  }, [filterBox, filterDiscount,dollarAmount, minDollars, pageNumber, pageSize]);
 
   const fetchTotalDollars = useCallback(async () => {
     try {
@@ -167,47 +190,48 @@ export default function App() {
     fetchTotalCount(); // استدعاء الدالة عند تحميل المكون
   }, [pageNumber, pageSize, load, fetchTotalDollars, fetchTotalCount]);
 
-async function searchByEmail() {
-  const email = searchEmail.trim();
+  async function searchByEmail() {
+    const email = searchEmail.trim();
 
-  if (!email) return;
+    if (!email) return;
 
-  setSearching(true);
-  setLoadError(null);
+    setSearching(true);
+    setLoadError(null);
 
-  try {
-    const res = await fetch(
-      `${API_BASE_URL}/search?email=${encodeURIComponent(email)}`
-    );
-
-    if (res.status === 404) {
-      setSearchActive(true);
-      setAccounts([]);
-      return;
-    }
-
-    if (!res.ok) {
-      const msg = await readErrorMessage(res);
-      throw new Error(
-        msg || "Couldn't search for that account. Please try again."
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/search?email=${encodeURIComponent(email)}`,
       );
+
+      if (res.status === 404) {
+        setSearchActive(true);
+        setAccounts([]);
+        return;
+      }
+
+      if (!res.ok) {
+        const msg = await readErrorMessage(res);
+        throw new Error(
+          msg || "Couldn't search for that account. Please try again.",
+        );
+      }
+
+      const accounts = await res.json();
+      const results = Array.isArray(accounts) ? accounts : [];
+
+      setSearchActive(true);
+      setAccounts(results);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(
+        err instanceof TypeError
+          ? "Couldn't reach the API. Check the base URL and that the server is running."
+          : err.message || "Something went wrong searching for that account.",
+      );
+    } finally {
+      setSearching(false);
     }
-
-    const accounts = await res.json();
-
-    setSearchActive(true);
-    setAccounts(Array.isArray(accounts) ? accounts : []);
-
-  } catch (err) {
-    setLoadError(
-      err instanceof TypeError
-        ? "Couldn't reach the API. Check the base URL and that the server is running."
-        : err.message || "Something went wrong searching for that account."
-    );
-  } finally {
-    setSearching(false);
   }
-}
 
   function clearSearch() {
     setSearchEmail("");
@@ -222,15 +246,30 @@ async function searchByEmail() {
     return searchActive ? searchByEmail() : load();
   }
 
-  async function addAccount({ email, dollar, isHasBox, isHasDiscount, isBanned }) {
+  async function addAccount({
+    email,
+    dollar,
+    isHasBox,
+    isHasDiscount,
+    isBanned,
+  }) {
     const res = await fetch(API_BASE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, dollar, isHasBox, isHasDiscount, isBanned }),
+      body: JSON.stringify({
+        email,
+        dollar,
+        isHasBox,
+        isHasDiscount,
+        isBanned,
+      }),
     });
     if (!res.ok) {
       const msg = await readErrorMessage(res);
-      throw new Error(msg || "Couldn't add this account. Please check the details and try again.");
+      throw new Error(
+        msg ||
+          "Couldn't add this account. Please check the details and try again.",
+      );
     }
     push("ok", `${email} added to the ledger`);
     setModal(null);
@@ -241,11 +280,20 @@ async function searchByEmail() {
     fetchTotalCount(); // تحديث العدد الكلي بعد الإضافة
   }
 
-  async function editAccount(id, { email, dollar, isHasBox, isHasDiscount, isBanned }) {
+  async function editAccount(
+    id,
+    { email, dollar, isHasBox, isHasDiscount, isBanned },
+  ) {
     const res = await fetch(`${API_BASE_URL}/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, dollar, isHasBox, isHasDiscount, isBanned }),
+      body: JSON.stringify({
+        email,
+        dollar,
+        isHasBox,
+        isHasDiscount,
+        isBanned,
+      }),
     });
     if (!res.ok) {
       const msg = await readErrorMessage(res);
@@ -259,7 +307,7 @@ async function searchByEmail() {
   async function useDollars(id, amount) {
     const res = await fetch(
       `${API_BASE_URL}/${id}/use-dollars?dollarsAmountUsed=${encodeURIComponent(amount)}`,
-      { method: "PATCH" }
+      { method: "PATCH" },
     );
     if (!res.ok) {
       const msg = await readErrorMessage(res);
@@ -304,9 +352,11 @@ async function searchByEmail() {
       <header className="ledger-header">
         <div className="header-title-area">
           <h1>Ledger</h1>
-          <p className="subtitle">Manage accounts, balances, and entitlements securely.</p>
+          <p className="subtitle">
+            Manage accounts, balances, and entitlements securely.
+          </p>
         </div>
-        
+
         <div className="header-actions">
           <button
             className="icon-btn"
@@ -316,7 +366,10 @@ async function searchByEmail() {
           >
             <RefreshCw size={18} className={loading ? "spin" : ""} />
           </button>
-          <button className="primary-btn pulse-hover" onClick={() => setModal({ type: "add" })}>
+          <button
+            className="primary-btn pulse-hover"
+            onClick={() => setModal({ type: "add" })}
+          >
             <Plus size={18} />
             <span>New Account</span>
           </button>
@@ -336,7 +389,7 @@ async function searchByEmail() {
             </div>
           </div>
         )}
-        
+
         {/* البطاقة الجديدة لعرض العدد الكلي للحسابات في قاعدة البيانات */}
         {totalCount !== null && (
           <div className="stat-card">
@@ -374,7 +427,11 @@ async function searchByEmail() {
               onKeyDown={(e) => e.key === "Enter" && searchByEmail()}
             />
           </div>
-          <button className="ghost-btn" onClick={searchByEmail} disabled={searching || !searchEmail.trim()}>
+          <button
+            className="ghost-btn"
+            onClick={searchByEmail}
+            disabled={searching || !searchEmail.trim()}
+          >
             {searching ? "Searching…" : "Search"}
           </button>
           {searchActive && (
@@ -413,6 +470,20 @@ async function searchByEmail() {
                 />
               </div>
             </div>
+
+            <div className="min-dollar">
+              <span>Exact balance</span>
+              <div className="min-dollar-input-wrap">
+                <span className="currency-symbol">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={dollarAmount}
+                  onChange={(e) => setDollarAmount(e.target.value)}
+                />
+              </div>
+            </div>
             <button
               className="ghost-btn apply-filters"
               onClick={() => {
@@ -442,13 +513,16 @@ async function searchByEmail() {
             <h3>{searchActive ? "Account not found" : "No accounts found"}</h3>
             <p>
               {searchActive
-                ? "No account exists with that exact email address in our system."
+                ? "No account matched that email search."
                 : "Try adjusting the filters above, or create a new account to get started."}
             </p>
             {!searchActive && (
-               <button className="primary-btn" onClick={() => setModal({ type: "add" })}>
-                 <Plus size={16} /> Add First Account
-               </button>
+              <button
+                className="primary-btn"
+                onClick={() => setModal({ type: "add" })}
+              >
+                <Plus size={16} /> Add First Account
+              </button>
             )}
           </div>
         )}
@@ -473,17 +547,23 @@ async function searchByEmail() {
                     <tr key={id} className="table-row">
                       <td className="col-email font-medium">{acc.email}</td>
                       <td className="col-tag">
-                        <span className={`status-badge ${acc.isHasBox ? "badge-box" : "badge-off"}`}>
-                           {acc.isHasBox ? "Yes" : "No"}
+                        <span
+                          className={`status-badge ${acc.isHasBox ? "badge-box" : "badge-off"}`}
+                        >
+                          {acc.isHasBox ? "Yes" : "No"}
                         </span>
                       </td>
                       <td className="col-tag">
-                        <span className={`status-badge ${acc.isHasDiscount ? "badge-discount" : "badge-off"}`}>
-                           {acc.isHasDiscount ? "Active" : "None"}
+                        <span
+                          className={`status-badge ${acc.isHasDiscount ? "badge-discount" : "badge-off"}`}
+                        >
+                          {acc.isHasDiscount ? "Active" : "None"}
                         </span>
                       </td>
                       <td className="col-tag">
-                        <span className={`status-badge ${acc.isBanned ? "badge-banned" : "badge-safe"}`}>
+                        <span
+                          className={`status-badge ${acc.isBanned ? "badge-banned" : "badge-safe"}`}
+                        >
                           {acc.isBanned ? "Banned" : "Active"}
                         </span>
                       </td>
@@ -492,7 +572,9 @@ async function searchByEmail() {
                         <div className="action-buttons">
                           <button
                             className="row-btn"
-                            onClick={() => setModal({ type: "edit", account: acc, id })}
+                            onClick={() =>
+                              setModal({ type: "edit", account: acc, id })
+                            }
                             title="Edit account"
                           >
                             <Pencil size={14} />
@@ -500,7 +582,9 @@ async function searchByEmail() {
                           </button>
                           <button
                             className="row-btn row-btn-accent"
-                            onClick={() => setModal({ type: "use", account: acc, id })}
+                            onClick={() =>
+                              setModal({ type: "use", account: acc, id })
+                            }
                             title="Use dollars"
                           >
                             <Coins size={14} />
@@ -508,7 +592,9 @@ async function searchByEmail() {
                           </button>
                           <button
                             className="row-btn row-btn-danger icon-only"
-                            onClick={() => setModal({ type: "delete", account: acc, id })}
+                            onClick={() =>
+                              setModal({ type: "delete", account: acc, id })
+                            }
                             title="Delete account"
                           >
                             <Trash2 size={16} />
@@ -597,7 +683,11 @@ async function searchByEmail() {
       <div className="toast-stack">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.tone}`}>
-            {t.tone === "ok" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            {t.tone === "ok" ? (
+              <CheckCircle2 size={18} />
+            ) : (
+              <AlertCircle size={18} />
+            )}
             <span>{t.text}</span>
           </div>
         ))}
@@ -616,11 +706,19 @@ function ModalShell({ title, onClose, children }) {
   }, [onClose]);
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head">
           <h2>{title}</h2>
-          <button className="icon-btn modal-close-btn" onClick={onClose} ref={firstRef} aria-label="Close">
+          <button
+            className="icon-btn modal-close-btn"
+            onClick={onClose}
+            ref={firstRef}
+            aria-label="Close"
+          >
             <X size={20} />
           </button>
         </div>
@@ -639,14 +737,20 @@ function AddModal({ onClose, onSubmit }) {
   const [busy, setBusy] = useState(false);
 
   const handleDollarChange = (e) => {
-    const val = e.target.value.replace(/[^0-9.]/g, '');
+    const val = e.target.value.replace(/[^0-9.]/g, "");
     setDollar(val);
   };
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
-    await onSubmit({ email, dollar: Number(dollar) || 0, isHasBox, isHasDiscount, isBanned });
+    await onSubmit({
+      email,
+      dollar: Number(dollar) || 0,
+      isHasBox,
+      isHasDiscount,
+      isBanned,
+    });
     setBusy(false);
   }
 
@@ -655,23 +759,55 @@ function AddModal({ onClose, onSubmit }) {
       <form className="modal-form" onSubmit={submit}>
         <label>
           Email Address
-          <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name" />
+          <input
+            type="text"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name"
+          />
         </label>
         <label>
           Starting Balance
           <div className="input-with-icon">
             <span className="input-icon">$</span>
-            <input type="text" inputMode="decimal" value={dollar} onChange={handleDollarChange} placeholder="0.00" />
+            <input
+              type="text"
+              inputMode="decimal"
+              value={dollar}
+              onChange={handleDollarChange}
+              placeholder="0.00"
+            />
           </div>
         </label>
         <div className="toggle-row">
-          <ToggleField label="Has Box" checked={isHasBox} onChange={setIsHasBox} />
-          <ToggleField label="Has Discount" checked={isHasDiscount} onChange={setIsHasDiscount} />
-          <ToggleField label="Banned" checked={isBanned} onChange={setIsBanned} />
+          <ToggleField
+            label="Has Box"
+            checked={isHasBox}
+            onChange={setIsHasBox}
+          />
+          <ToggleField
+            label="Has Discount"
+            checked={isHasDiscount}
+            onChange={setIsHasDiscount}
+          />
+          <ToggleField
+            label="Banned"
+            checked={isBanned}
+            onChange={setIsBanned}
+          />
         </div>
         <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary-btn pulse-hover" disabled={busy}>{busy ? "Creating…" : "Create Account"}</button>
+          <button type="button" className="ghost-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="primary-btn pulse-hover"
+            disabled={busy}
+          >
+            {busy ? "Creating…" : "Create Account"}
+          </button>
         </div>
       </form>
     </ModalShell>
@@ -687,14 +823,20 @@ function EditModal({ account, onClose, onSubmit }) {
   const [busy, setBusy] = useState(false);
 
   const handleDollarChange = (e) => {
-    const val = e.target.value.replace(/[^0-9.]/g, '');
+    const val = e.target.value.replace(/[^0-9.]/g, "");
     setDollar(val);
   };
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
-    await onSubmit({ email, dollar: Number(dollar) || 0, isHasBox, isHasDiscount, isBanned });
+    await onSubmit({
+      email,
+      dollar: Number(dollar) || 0,
+      isHasBox,
+      isHasDiscount,
+      isBanned,
+    });
     setBusy(false);
   }
 
@@ -703,23 +845,54 @@ function EditModal({ account, onClose, onSubmit }) {
       <form className="modal-form" onSubmit={submit}>
         <label>
           Email Address
-          <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            type="text"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </label>
         <label>
           Account Balance
           <div className="input-with-icon">
             <span className="input-icon">$</span>
-            <input type="text" inputMode="decimal" value={dollar} onChange={handleDollarChange} placeholder="0.00" />
+            <input
+              type="text"
+              inputMode="decimal"
+              value={dollar}
+              onChange={handleDollarChange}
+              placeholder="0.00"
+            />
           </div>
         </label>
         <div className="toggle-row">
-          <ToggleField label="Has Box" checked={isHasBox} onChange={setIsHasBox} />
-          <ToggleField label="Has Discount" checked={isHasDiscount} onChange={setIsHasDiscount} />
-          <ToggleField label="Banned" checked={isBanned} onChange={setIsBanned} />
+          <ToggleField
+            label="Has Box"
+            checked={isHasBox}
+            onChange={setIsHasBox}
+          />
+          <ToggleField
+            label="Has Discount"
+            checked={isHasDiscount}
+            onChange={setIsHasDiscount}
+          />
+          <ToggleField
+            label="Banned"
+            checked={isBanned}
+            onChange={setIsBanned}
+          />
         </div>
         <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary-btn pulse-hover" disabled={busy}>{busy ? "Saving…" : "Save Changes"}</button>
+          <button type="button" className="ghost-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="primary-btn pulse-hover"
+            disabled={busy}
+          >
+            {busy ? "Saving…" : "Save Changes"}
+          </button>
         </div>
       </form>
     </ModalShell>
@@ -735,9 +908,14 @@ function UseDollarsModal({ account, onClose, onSubmit }) {
 
   async function submit(e) {
     e.preventDefault();
+    if (invalid) return;
+
     setBusy(true);
-    await onSubmit(amountNum);
-    setBusy(false);
+    try {
+      await onSubmit(amountNum);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -751,13 +929,32 @@ function UseDollarsModal({ account, onClose, onSubmit }) {
           Amount to deduct
           <div className="input-with-icon">
             <span className="input-icon">$</span>
-            <input type="number" min="1" max={current} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <input
+              type="number"
+              min="1"
+              max={current}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
           </div>
         </label>
-        {invalid && <p className="hint hint-warn"><AlertCircle size={12}/> Please enter an amount between $1 and {money(current)}.</p>}
+        {invalid && (
+          <p className="hint hint-warn">
+            <AlertCircle size={12} /> Please enter an amount between $1 and{" "}
+            {money(current)}.
+          </p>
+        )}
         <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary-btn pulse-hover" disabled={busy || invalid}>{busy ? "Processing…" : "Confirm Deduction"}</button>
+          <button type="button" className="ghost-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="primary-btn pulse-hover"
+            disabled={busy || invalid}
+          >
+            {busy ? "Processing…" : "Confirm Deduction"}
+          </button>
         </div>
       </form>
     </ModalShell>
@@ -769,8 +966,11 @@ function DeleteModal({ account, onClose, onConfirm }) {
 
   async function confirm() {
     setBusy(true);
-    await onConfirm();
-    setBusy(false);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -779,13 +979,23 @@ function DeleteModal({ account, onClose, onConfirm }) {
         <div className="delete-warning">
           <AlertCircle size={32} className="warning-icon" />
           <p>
-            Are you completely sure you want to remove <strong>{account.email}</strong>? <br/>
+            Are you completely sure you want to remove{" "}
+            <strong>{account.email}</strong>? <br />
             <span>This action cannot be undone and all data will be lost.</span>
           </p>
         </div>
         <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>Keep Account</button>
-          <button type="button" className="danger-btn" onClick={confirm} disabled={busy}>{busy ? "Deleting…" : "Yes, Delete it"}</button>
+          <button type="button" className="ghost-btn" onClick={onClose}>
+            Keep Account
+          </button>
+          <button
+            type="button"
+            className="danger-btn"
+            onClick={confirm}
+            disabled={busy}
+          >
+            {busy ? "Deleting…" : "Yes, Delete it"}
+          </button>
         </div>
       </div>
     </ModalShell>
@@ -794,8 +1004,15 @@ function DeleteModal({ account, onClose, onConfirm }) {
 
 function ToggleField({ label, checked, onChange }) {
   return (
-    <button type="button" className={`toggle ${checked ? "toggle-on" : ""}`} onClick={() => onChange(!checked)} aria-pressed={checked}>
-      <span className="toggle-track"><span className="toggle-thumb" /></span>
+    <button
+      type="button"
+      className={`toggle ${checked ? "toggle-on" : ""}`}
+      onClick={() => onChange(!checked)}
+      aria-pressed={checked}
+    >
+      <span className="toggle-track">
+        <span className="toggle-thumb" />
+      </span>
       <span className="toggle-label">{label}</span>
     </button>
   );
