@@ -110,6 +110,9 @@ export default function App() {
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // Controls whether the Next button is allowed to request another page.
+  const [hasNextPage, setHasNextPage] = useState(false);
+
   const [searchEmail, setSearchEmail] = useState("");
   const [searchActive, setSearchActive] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -125,31 +128,70 @@ export default function App() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+
     try {
       const params = new URLSearchParams();
+
       if (filterBox) params.set("hasBox", "true");
       if (filterDiscount) params.set("hasDiscount", "true");
       if (minDollars !== "") params.set("minDollars", String(minDollars));
       if (dollarAmount !== "") {
         params.set("dollarAmount", String(dollarAmount));
       }
+
       const hasFilters = [...params.keys()].length > 0;
+
       params.set("PageSize", String(pageSize));
       params.set("PageNumber", String(pageNumber));
+
       const url = hasFilters
-        ? `${API_BASE_URL}/filter?${params}`
-        : `${API_BASE_URL}?${params}`;
+        ? `${API_BASE_URL}/filter?${params.toString()}`
+        : `${API_BASE_URL}?${params.toString()}`;
+
       const res = await fetch(url);
+
       if (!res.ok) {
         const msg = await readErrorMessage(res);
-        if (msg && msg.toLowerCase().includes(NO_ACCOUNTS_MESSAGE)) {
-          setAccounts([]);
+
+        // The current API returns 500 + "There is no accounts" when the
+        // requested page is beyond the last page. Treat it as the end,
+        // not as a visible application error.
+        if (
+          pageNumber > 1 &&
+          msg &&
+          msg.toLowerCase().includes(NO_ACCOUNTS_MESSAGE)
+        ) {
+          setHasNextPage(false);
+          setPageNumber((p) => Math.max(1, p - 1));
           return;
         }
+
+        if (msg && msg.toLowerCase().includes(NO_ACCOUNTS_MESSAGE)) {
+          setAccounts([]);
+          setHasNextPage(false);
+          return;
+        }
+
         throw new Error(msg || "Couldn't load accounts. Please try again.");
       }
+
       const data = await res.json();
-      setAccounts(Array.isArray(data) ? data : []);
+      const results = Array.isArray(data) ? data : [];
+
+      setAccounts(results);
+
+      if (hasFilters) {
+        // /Count is the count of all accounts, not the filtered result set.
+        // Therefore filters use the current page as a hint. If the next
+        // page is empty, the handler above moves us back automatically.
+        setHasNextPage(results.length === pageSize);
+      } else if (totalCount !== null) {
+        // For the normal list we know the exact number of pages.
+        setHasNextPage(pageNumber * pageSize < totalCount);
+      } else {
+        // Fallback while /Count is still loading.
+        setHasNextPage(results.length === pageSize);
+      }
     } catch (err) {
       setLoadError(
         err instanceof TypeError
@@ -159,7 +201,15 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [filterBox, filterDiscount,dollarAmount, minDollars, pageNumber, pageSize]);
+  }, [
+    filterBox,
+    filterDiscount,
+    dollarAmount,
+    minDollars,
+    pageNumber,
+    pageSize,
+    totalCount,
+  ]);
 
   const fetchTotalDollars = useCallback(async () => {
     try {
@@ -186,9 +236,32 @@ export default function App() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
     fetchTotalDollars();
-    fetchTotalCount(); // استدعاء الدالة عند تحميل المكون
-  }, [pageNumber, pageSize, load, fetchTotalDollars, fetchTotalCount]);
+    fetchTotalCount();
+  }, [fetchTotalDollars, fetchTotalCount]);
+
+  // Once the exact total count is known, calculate the real Next state
+  // for the normal (unfiltered) list.
+  useEffect(() => {
+    const hasFilters =
+      filterBox || filterDiscount || minDollars !== "" || dollarAmount !== "";
+
+    if (!searchActive && !hasFilters && totalCount !== null) {
+      setHasNextPage(pageNumber * pageSize < totalCount);
+    }
+  }, [
+    totalCount,
+    pageNumber,
+    pageSize,
+    filterBox,
+    filterDiscount,
+    minDollars,
+    dollarAmount,
+    searchActive,
+  ]);
 
   async function searchByEmail() {
     const email = searchEmail.trim();
@@ -221,6 +294,7 @@ export default function App() {
 
       setSearchActive(true);
       setAccounts(results);
+      setHasNextPage(false);
       setLoadError(null);
     } catch (err) {
       setLoadError(
@@ -236,6 +310,8 @@ export default function App() {
   function clearSearch() {
     setSearchEmail("");
     setSearchActive(false);
+    setPageNumber(1);
+    setHasNextPage(false);
     setLoadError(null);
     load();
   }
@@ -275,6 +351,8 @@ export default function App() {
     setModal(null);
     setSearchActive(false);
     setSearchEmail("");
+    setPageNumber(1);
+    setHasNextPage(false);
     load();
     fetchTotalDollars();
     fetchTotalCount(); // تحديث العدد الكلي بعد الإضافة
@@ -329,10 +407,10 @@ export default function App() {
     if (searchActive) {
       setSearchActive(false);
       setSearchEmail("");
-      load();
-    } else {
-      load();
     }
+
+    setPageNumber(1);
+    setHasNextPage(false);
     fetchTotalDollars();
     fetchTotalCount(); // تحديث العدد الكلي بعد الحذف
   }
@@ -351,7 +429,12 @@ export default function App() {
 
       <header className="ledger-header">
         <div className="header-title-area">
-          <h1>Ledger</h1>
+          <h1
+            onClick={() => window.location.reload()}
+            style={{ cursor: "pointer" }}
+          >
+            Ledger
+          </h1>
           <p className="subtitle">
             Manage accounts, balances, and entitlements securely.
           </p>
@@ -488,7 +571,7 @@ export default function App() {
               className="ghost-btn apply-filters"
               onClick={() => {
                 setPageNumber(1);
-                load();
+                setHasNextPage(false);
               }}
             >
               Apply filters
@@ -619,6 +702,7 @@ export default function App() {
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));
                     setPageNumber(1);
+                    setHasNextPage(false);
                   }}
                 >
                   <option value={5}>5</option>
@@ -642,8 +726,12 @@ export default function App() {
               </div>
               <button
                 className="ghost-btn nav-btn"
-                onClick={() => setPageNumber((p) => p + 1)}
-                disabled={accounts.length < pageSize || loading}
+                onClick={() => {
+                  if (hasNextPage && !loading) {
+                    setPageNumber((p) => p + 1);
+                  }
+                }}
+                disabled={!hasNextPage || loading}
               >
                 Next
               </button>
