@@ -13,7 +13,8 @@ import {
   Search,
   Wallet,
   Users,
-  Database, // أيقونة جديدة للعدد الكلي للحسابات في قاعدة البيانات
+  Database,
+  Star,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -118,12 +119,70 @@ export default function App() {
   const [searching, setSearching] = useState(false);
 
   const [totalDollars, setTotalDollars] = useState(null);
-
-  // حالة جديدة لتخزين العدد الكلي للحسابات
   const [totalCount, setTotalCount] = useState(null);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
+  const [draggedAccountId, setDraggedAccountId] = useState(null);
+  const [dragOverAccountId, setDragOverAccountId] = useState(null);
+  const [movingAccountId, setMovingAccountId] = useState(null);
 
   const [modal, setModal] = useState(null);
   const { toasts, push } = useToasts();
+
+  // مرجع لتخزين أرقام الحسابات المفضلة
+  const favoriteIdsRef = useRef(new Set());
+
+  // دالة جلب الأرقام المفضلة وتخزينها في المرجع
+  const fetchFavoriteIds = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/Favorites`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        favoriteIdsRef.current = new Set(data.map((acc) => acc.id));
+        setAccounts((prev) =>
+          prev.map((acc) => ({
+            ...acc,
+            isFavorite: favoriteIdsRef.current.has(acc.id),
+          }))
+        );
+      }
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const loadFavorites = useCallback(async () => {
+    setFavoritesLoading(true);
+    setLoadError(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/Favorites`);
+
+      if (!res.ok) {
+        const msg = await readErrorMessage(res);
+        throw new Error(
+          msg || "Couldn't load favorite accounts. Please try again.",
+        );
+      }
+
+      const data = await res.json();
+      const results = Array.isArray(data) ? data : [];
+      
+      // إجبار الحسابات في صفحة المفضلة أن تكون مفضلة
+      setAccounts(results.map(acc => ({ ...acc, isFavorite: true })));
+      setHasNextPage(false);
+    } catch (err) {
+      setLoadError(
+        err instanceof TypeError
+          ? "Couldn't reach the API. Check the base URL and that the server is running."
+          : err.message || "Something went wrong loading favorite accounts.",
+      );
+      setAccounts([]);
+    } finally {
+      setFavoritesLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,9 +212,6 @@ export default function App() {
       if (!res.ok) {
         const msg = await readErrorMessage(res);
 
-        // The current API returns 500 + "There is no accounts" when the
-        // requested page is beyond the last page. Treat it as the end,
-        // not as a visible application error.
         if (
           pageNumber > 1 &&
           msg &&
@@ -178,18 +234,19 @@ export default function App() {
       const data = await res.json();
       const results = Array.isArray(data) ? data : [];
 
-      setAccounts(results);
+      // استخدام المرجع لتحديد حالة النجمة
+      setAccounts(
+        results.map((acc) => ({
+          ...acc,
+          isFavorite: favoriteIdsRef.current.has(acc.id),
+        }))
+      );
 
       if (hasFilters) {
-        // /Count is the count of all accounts, not the filtered result set.
-        // Therefore filters use the current page as a hint. If the next
-        // page is empty, the handler above moves us back automatically.
         setHasNextPage(results.length === pageSize);
       } else if (totalCount !== null) {
-        // For the normal list we know the exact number of pages.
         setHasNextPage(pageNumber * pageSize < totalCount);
       } else {
-        // Fallback while /Count is still loading.
         setHasNextPage(results.length === pageSize);
       }
     } catch (err) {
@@ -222,7 +279,6 @@ export default function App() {
     }
   }, []);
 
-  // دالة جديدة لجلب العدد الكلي للحسابات من الـ API
   const fetchTotalCount = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/Count`);
@@ -235,16 +291,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (showFavorites) {
+      loadFavorites();
+    } else {
+      load();
+    }
+  }, [showFavorites, load, loadFavorites]);
 
   useEffect(() => {
     fetchTotalDollars();
     fetchTotalCount();
-  }, [fetchTotalDollars, fetchTotalCount]);
+    fetchFavoriteIds();
+  }, [fetchTotalDollars, fetchTotalCount, fetchFavoriteIds]);
 
-  // Once the exact total count is known, calculate the real Next state
-  // for the normal (unfiltered) list.
   useEffect(() => {
     const hasFilters =
       filterBox || filterDiscount || minDollars !== "" || dollarAmount !== "";
@@ -270,6 +329,7 @@ export default function App() {
 
     setSearching(true);
     setLoadError(null);
+    setShowFavorites(false);
 
     try {
       const res = await fetch(
@@ -289,11 +349,17 @@ export default function App() {
         );
       }
 
-      const accounts = await res.json();
-      const results = Array.isArray(accounts) ? accounts : [];
+      const accountsData = await res.json();
+      const results = Array.isArray(accountsData) ? accountsData : [];
 
       setSearchActive(true);
-      setAccounts(results);
+      // استخدام المرجع لتحديد حالة النجمة في البحث
+      setAccounts(
+        results.map((acc) => ({
+          ...acc,
+          isFavorite: favoriteIdsRef.current.has(acc.id),
+        }))
+      );
       setHasNextPage(false);
       setLoadError(null);
     } catch (err) {
@@ -318,8 +384,10 @@ export default function App() {
 
   function refresh() {
     fetchTotalDollars();
-    fetchTotalCount(); // تحديث العدد الكلي عند طلب التحديث
-    return searchActive ? searchByEmail() : load();
+    fetchTotalCount();
+    fetchFavoriteIds();
+    if (searchActive) return searchByEmail();
+    return showFavorites ? loadFavorites() : load();
   }
 
   async function addAccount({
@@ -355,7 +423,7 @@ export default function App() {
     setHasNextPage(false);
     load();
     fetchTotalDollars();
-    fetchTotalCount(); // تحديث العدد الكلي بعد الإضافة
+    fetchTotalCount();
   }
 
   async function editAccount(
@@ -412,7 +480,126 @@ export default function App() {
     setPageNumber(1);
     setHasNextPage(false);
     fetchTotalDollars();
-    fetchTotalCount(); // تحديث العدد الكلي بعد الحذف
+    fetchTotalCount();
+  }
+
+  async function toggleFavorite(id) {
+    const isCurrentlyFav = favoriteIdsRef.current.has(id);
+
+    // 1. تحديث المرجع محلياً فوراً
+    if (isCurrentlyFav) {
+      favoriteIdsRef.current.delete(id);
+    } else {
+      favoriteIdsRef.current.add(id);
+    }
+
+    // 2. تحديث الواجهة بشكل متفائل
+    setAccounts((prev) =>
+      prev.map((account) =>
+        account.id === id
+          ? { ...account, isFavorite: !isCurrentlyFav }
+          : account
+      )
+    );
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/${id}/favorite`, {
+        method: "PUT",
+      });
+
+      if (!res.ok) {
+        const msg = await readErrorMessage(res);
+        throw new Error(
+          msg || "Couldn't update favorite status. Please try again."
+        );
+      }
+
+      // إخفاء الحساب فقط لو كنا داخل صفحة المفضلات وقمنا بإلغاء النجمة
+      if (showFavorites && isCurrentlyFav) {
+        setAccounts((prev) => prev.filter((account) => account.id !== id));
+      }
+
+      push("ok", "Favorite status updated");
+    } catch (err) {
+      // 3. التراجع في حالة فشل الطلب
+      if (isCurrentlyFav) {
+        favoriteIdsRef.current.add(id);
+      } else {
+        favoriteIdsRef.current.delete(id);
+      }
+
+      setAccounts((prev) =>
+        prev.map((account) =>
+          account.id === id
+            ? { ...account, isFavorite: isCurrentlyFav }
+            : account
+        )
+      );
+
+      throw err;
+    }
+  }
+
+  async function moveAccount(id, direction) {
+    const endpoint = direction === "up" ? "MoveUp" : "MoveDown";
+
+    const res = await fetch(`${API_BASE_URL}/${endpoint}/${id}`, {
+      method: "PUT",
+    });
+
+    if (!res.ok) {
+      const msg = await readErrorMessage(res);
+      throw new Error(
+        msg || `Couldn't move account ${direction}. Please try again.`,
+      );
+    }
+  }
+
+  async function handleDrop(targetId) {
+    const hasFilters =
+      filterBox || filterDiscount || minDollars !== "" || dollarAmount !== "";
+
+    if (searchActive || showFavorites || hasFilters) {
+      setDraggedAccountId(null);
+      setDragOverAccountId(null);
+      return;
+    }
+
+    if (
+      draggedAccountId === null ||
+      draggedAccountId === targetId ||
+      movingAccountId !== null
+    ) {
+      setDraggedAccountId(null);
+      setDragOverAccountId(null);
+      return;
+    }
+
+    const fromIndex = accounts.findIndex((a) => a.id === draggedAccountId);
+    const toIndex = accounts.findIndex((a) => a.id === targetId);
+
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const direction = fromIndex > toIndex ? "up" : "down";
+    const steps = Math.abs(fromIndex - toIndex);
+
+    setMovingAccountId(draggedAccountId);
+    setLoadError(null);
+
+    try {
+      for (let i = 0; i < steps; i++) {
+        await moveAccount(draggedAccountId, direction);
+      }
+
+      push("ok", "Account position updated");
+      await load();
+    } catch (err) {
+      push("err", err.message || "Couldn't change account position.");
+    } finally {
+      setDraggedAccountId(null);
+      setDragOverAccountId(null);
+      setMovingAccountId(null);
+    }
   }
 
   async function guarded(fn, ...args) {
@@ -459,7 +646,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* لوحة الإحصائيات مع البطاقة الجديدة */}
       <div className="stats-dashboard">
         {totalDollars !== null && (
           <div className="stat-card highlight-card">
@@ -473,7 +659,6 @@ export default function App() {
           </div>
         )}
 
-        {/* البطاقة الجديدة لعرض العدد الكلي للحسابات في قاعدة البيانات */}
         {totalCount !== null && (
           <div className="stat-card">
             <div className="stat-icon-wrapper db-icon">
@@ -486,7 +671,6 @@ export default function App() {
           </div>
         )}
 
-        {/* بطاقة الحسابات المعروضة حالياً في الجدول */}
         <div className="stat-card">
           <div className="stat-icon-wrapper users-icon">
             <Users size={20} />
@@ -527,55 +711,73 @@ export default function App() {
         {!searchActive && (
           <div className="toolbar">
             <button
-              className={`chip ${filterBox ? "chip-on" : ""}`}
-              onClick={() => setFilterBox((v) => !v)}
-            >
-              <Box size={14} />
-              Has box
-            </button>
-            <button
-              className={`chip ${filterDiscount ? "chip-on" : ""}`}
-              onClick={() => setFilterDiscount((v) => !v)}
-            >
-              <Percent size={14} />
-              Has discount
-            </button>
-            <div className="min-dollar">
-              <span>Balance over</span>
-              <div className="min-dollar-input-wrap">
-                <span className="currency-symbol">$</span>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={minDollars}
-                  onChange={(e) => setMinDollars(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="min-dollar">
-              <span>Exact balance</span>
-              <div className="min-dollar-input-wrap">
-                <span className="currency-symbol">$</span>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={dollarAmount}
-                  onChange={(e) => setDollarAmount(e.target.value)}
-                />
-              </div>
-            </div>
-            <button
-              className="ghost-btn apply-filters"
+              className={`chip ${showFavorites ? "chip-on favorite-chip" : ""}`}
               onClick={() => {
+                setShowFavorites((v) => !v);
+                setSearchActive(false);
+                setSearchEmail("");
                 setPageNumber(1);
                 setHasNextPage(false);
               }}
             >
-              Apply filters
+              <Star size={14} fill={showFavorites ? "currentColor" : "none"} />
+              Favorites
             </button>
+
+            {!showFavorites && (
+              <>
+                <button
+                  className={`chip ${filterBox ? "chip-on" : ""}`}
+                  onClick={() => setFilterBox((v) => !v)}
+                >
+                  <Box size={14} />
+                  Has box
+                </button>
+                <button
+                  className={`chip ${filterDiscount ? "chip-on" : ""}`}
+                  onClick={() => setFilterDiscount((v) => !v)}
+                >
+                  <Percent size={14} />
+                  Has discount
+                </button>
+                <div className="min-dollar">
+                  <span>Balance over</span>
+                  <div className="min-dollar-input-wrap">
+                    <span className="currency-symbol">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={minDollars}
+                      onChange={(e) => setMinDollars(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="min-dollar">
+                  <span>Exact balance</span>
+                  <div className="min-dollar-input-wrap">
+                    <span className="currency-symbol">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={dollarAmount}
+                      onChange={(e) => setDollarAmount(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <button
+                  className="ghost-btn apply-filters"
+                  onClick={() => {
+                    setPageNumber(1);
+                    setHasNextPage(false);
+                  }}
+                >
+                  Apply filters
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -588,34 +790,49 @@ export default function App() {
           </div>
         )}
 
-        {!loadError && accounts.length === 0 && !loading && !searching && (
-          <div className="empty-state">
-            <div className="empty-icon-wrap">
-              <Search size={48} />
+        {!loadError &&
+          accounts.length === 0 &&
+          !loading &&
+          !searching &&
+          !favoritesLoading && (
+            <div className="empty-state">
+              <div className="empty-icon-wrap">
+                <Search size={48} />
+              </div>
+              <h3>
+                {searchActive
+                  ? "Account not found"
+                  : showFavorites
+                    ? "No favorite accounts"
+                    : "No accounts found"}
+              </h3>
+              <p>
+                {searchActive
+                  ? "No account matched that email search."
+                  : showFavorites
+                    ? "You haven't added any accounts to favorites yet."
+                    : "Try adjusting the filters above, or create a new account to get started."}
+              </p>
+              {!searchActive && !showFavorites && (
+                <button
+                  className="primary-btn"
+                  onClick={() => setModal({ type: "add" })}
+                >
+                  <Plus size={16} /> Add First Account
+                </button>
+              )}
             </div>
-            <h3>{searchActive ? "Account not found" : "No accounts found"}</h3>
-            <p>
-              {searchActive
-                ? "No account matched that email search."
-                : "Try adjusting the filters above, or create a new account to get started."}
-            </p>
-            {!searchActive && (
-              <button
-                className="primary-btn"
-                onClick={() => setModal({ type: "add" })}
-              >
-                <Plus size={16} /> Add First Account
-              </button>
-            )}
-          </div>
-        )}
+          )}
 
         {accounts.length > 0 && (
           <div className="table-responsive">
             <table className="ledger-table">
               <thead>
                 <tr>
-                  <th className="col-email">Email Address</th>
+                  <th className="col-email">
+                    Email Address{" "}
+                    <span className="drag-hint">Drag rows to reorder</span>
+                  </th>
                   <th className="col-tag">Box</th>
                   <th className="col-tag">Discount</th>
                   <th className="col-tag">Status</th>
@@ -627,7 +844,43 @@ export default function App() {
                 {accounts.map((acc) => {
                   const id = acc.id;
                   return (
-                    <tr key={id} className="table-row">
+                    <tr
+                      key={id}
+                      className={`table-row ${
+                        dragOverAccountId === id ? "drag-over-row" : ""
+                      } ${draggedAccountId === id ? "dragging-row" : ""}`}
+                      draggable={
+                        !movingAccountId &&
+                        !searchActive &&
+                        !showFavorites &&
+                        !filterBox &&
+                        !filterDiscount &&
+                        minDollars === "" &&
+                        dollarAmount === ""
+                      }
+                      onDragStart={(e) => {
+                        setDraggedAccountId(id);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", String(id));
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (dragOverAccountId !== id) setDragOverAccountId(id);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverAccountId === id)
+                          setDragOverAccountId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        handleDrop(id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedAccountId(null);
+                        setDragOverAccountId(null);
+                      }}
+                    >
                       <td className="col-email font-medium">{acc.email}</td>
                       <td className="col-tag">
                         <span
@@ -653,6 +906,25 @@ export default function App() {
                       <td className="col-balance">{money(acc.dollar)}</td>
                       <td className="col-actions">
                         <div className="action-buttons">
+                          <button
+                            className={`favorite-btn ${acc.isFavorite ? "favorite-active" : ""}`}
+                            onClick={() => guarded(toggleFavorite, id)}
+                            title={
+                              acc.isFavorite
+                                ? "Remove from favorites"
+                                : "Add to favorites"
+                            }
+                            aria-label={
+                              acc.isFavorite
+                                ? "Remove from favorites"
+                                : "Add to favorites"
+                            }
+                          >
+                            <Star
+                              size={19}
+                              fill={acc.isFavorite ? "currentColor" : "none"}
+                            />
+                          </button>
                           <button
                             className="row-btn"
                             onClick={() =>
@@ -692,7 +964,7 @@ export default function App() {
           </div>
         )}
 
-        {!searchActive && accounts.length > 0 && (
+        {!searchActive && !showFavorites && accounts.length > 0 && (
           <div className="pagination-bar">
             <div className="page-size">
               <span>Rows per page</span>
@@ -1269,7 +1541,33 @@ const CSS = `
   gap: 20px;
   margin-bottom: 32px;
 }
+.favorite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+}
 
+.favorite-btn:hover {
+  color: #F59E0B;
+  background: #FFFBEB;
+  transform: scale(1.08);
+}
+
+.favorite-btn.favorite-active {
+  color: #F59E0B;
+}
+
+.favorite-btn.favorite-active:hover {
+  color: #D97706;
+  background: #FFFBEB;
+}
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -1300,7 +1598,7 @@ const CSS = `
 }
 .wallet-icon { background: var(--primary); color: white; }
 .users-icon { background: #E2E8F0; color: var(--text-muted); }
-.db-icon { background: #FDE68A; color: #92400E; } /* لون مميز للأيقونة الجديدة */
+.db-icon { background: #FDE68A; color: #92400E; } 
 
 .stat-info { display: flex; flex-direction: column; gap: 4px; }
 .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1370,7 +1668,7 @@ const CSS = `
   width: 100%;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 600px; /* Enables Sticky Header on long lists */
+  max-height: 600px; 
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   background: var(--bg-card);
@@ -1381,7 +1679,7 @@ const CSS = `
 .ledger-table { width: 100%; border-collapse: collapse; min-width: 750px; }
 .ledger-table thead th {
   position: sticky;
-  top: 0; /* Sticky Header */
+  top: 0; 
   z-index: 10;
   background: #F8FAFC;
   text-align: left;
@@ -1401,12 +1699,17 @@ const CSS = `
   transition: background 0.15s ease;
 }
 .table-row:hover td { background: var(--primary-light); }
+ .table-row { cursor: grab; }
+.table-row:active { cursor: grabbing; }
+.table-row.dragging-row { opacity: 0.45; }
+.table-row.drag-over-row td { background: var(--primary-light); box-shadow: inset 0 3px 0 var(--primary); }
+.drag-hint { margin-left: 8px; font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); }
 .table-row:last-child td { border-bottom: none; }
 
 .font-medium { font-weight: 500; }
 .col-tag { width: 100px; }
 .col-balance { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 600; width: 140px; font-size: 15px; }
-.col-actions { width: 220px; text-align: right; }
+.col-actions { width: 360px; text-align: right; }
 
 /* Status Badges */
 .status-badge {
@@ -1430,6 +1733,10 @@ const CSS = `
 }
 .row-btn:hover { background: #F1F5F9; color: var(--text-main); }
 .row-btn-accent { color: var(--primary); }
+.favorite-row-btn { color: #B45309; }
+.favorite-row-btn:hover { background: #FFFBEB; border-color: #FDE68A; }
+.favorite-active { color: #D97706; background: #FFFBEB; }
+.favorite-chip { color: #D97706; }
 .row-btn-accent:hover { background: var(--primary-light); border-color: #BFDBFE; }
 .row-btn-danger { color: var(--danger); }
 .row-btn-danger:hover { background: var(--danger-light); border-color: #FECACA; }
