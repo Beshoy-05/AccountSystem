@@ -111,7 +111,6 @@ export default function App() {
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Controls whether the Next button is allowed to request another page.
   const [hasNextPage, setHasNextPage] = useState(false);
 
   const [searchEmail, setSearchEmail] = useState("");
@@ -129,10 +128,8 @@ export default function App() {
   const [modal, setModal] = useState(null);
   const { toasts, push } = useToasts();
 
-  // مرجع لتخزين أرقام الحسابات المفضلة
   const favoriteIdsRef = useRef(new Set());
 
-  // دالة جلب الأرقام المفضلة وتخزينها في المرجع
   const fetchFavoriteIds = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/Favorites`);
@@ -169,7 +166,6 @@ export default function App() {
       const data = await res.json();
       const results = Array.isArray(data) ? data : [];
       
-      // إجبار الحسابات في صفحة المفضلة أن تكون مفضلة
       setAccounts(results.map(acc => ({ ...acc, isFavorite: true })));
       setHasNextPage(false);
     } catch (err) {
@@ -234,7 +230,6 @@ export default function App() {
       const data = await res.json();
       const results = Array.isArray(data) ? data : [];
 
-      // استخدام المرجع لتحديد حالة النجمة
       setAccounts(
         results.map((acc) => ({
           ...acc,
@@ -353,7 +348,6 @@ export default function App() {
       const results = Array.isArray(accountsData) ? accountsData : [];
 
       setSearchActive(true);
-      // استخدام المرجع لتحديد حالة النجمة في البحث
       setAccounts(
         results.map((acc) => ({
           ...acc,
@@ -486,14 +480,12 @@ export default function App() {
   async function toggleFavorite(id) {
     const isCurrentlyFav = favoriteIdsRef.current.has(id);
 
-    // 1. تحديث المرجع محلياً فوراً
     if (isCurrentlyFav) {
       favoriteIdsRef.current.delete(id);
     } else {
       favoriteIdsRef.current.add(id);
     }
 
-    // 2. تحديث الواجهة بشكل متفائل
     setAccounts((prev) =>
       prev.map((account) =>
         account.id === id
@@ -514,14 +506,12 @@ export default function App() {
         );
       }
 
-      // إخفاء الحساب فقط لو كنا داخل صفحة المفضلات وقمنا بإلغاء النجمة
       if (showFavorites && isCurrentlyFav) {
         setAccounts((prev) => prev.filter((account) => account.id !== id));
       }
 
       push("ok", "Favorite status updated");
     } catch (err) {
-      // 3. التراجع في حالة فشل الطلب
       if (isCurrentlyFav) {
         favoriteIdsRef.current.add(id);
       } else {
@@ -610,6 +600,8 @@ export default function App() {
     }
   }
 
+  const isLoading = loading || searching || favoritesLoading;
+
   return (
     <div className="ledger-root">
       <style>{CSS}</style>
@@ -634,7 +626,7 @@ export default function App() {
             aria-label="Refresh"
             title="Refresh"
           >
-            <RefreshCw size={18} className={loading ? "spin" : ""} />
+            <RefreshCw size={18} className={isLoading ? "spin" : ""} />
           </button>
           <button
             className="primary-btn pulse-hover"
@@ -824,7 +816,7 @@ export default function App() {
             </div>
           )}
 
-        {accounts.length > 0 && (
+        {(accounts.length > 0 || isLoading) && (
           <div className="table-responsive">
             <table className="ledger-table">
               <thead>
@@ -841,124 +833,130 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((acc) => {
-                  const id = acc.id;
-                  return (
-                    <tr
-                      key={id}
-                      className={`table-row ${
-                        dragOverAccountId === id ? "drag-over-row" : ""
-                      } ${draggedAccountId === id ? "dragging-row" : ""}`}
-                      draggable={
-                        !movingAccountId &&
-                        !searchActive &&
-                        !showFavorites &&
-                        !filterBox &&
-                        !filterDiscount &&
-                        minDollars === "" &&
-                        dollarAmount === ""
-                      }
-                      onDragStart={(e) => {
-                        setDraggedAccountId(id);
-                        e.dataTransfer.effectAllowed = "move";
-                        e.dataTransfer.setData("text/plain", String(id));
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        if (dragOverAccountId !== id) setDragOverAccountId(id);
-                      }}
-                      onDragLeave={() => {
-                        if (dragOverAccountId === id)
+                {isLoading ? (
+                  Array.from({ length: accounts.length || pageSize }).map((_, i) => (
+                    <SkeletonRow key={i} />
+                  ))
+                ) : (
+                  accounts.map((acc) => {
+                    const id = acc.id;
+                    return (
+                      <tr
+                        key={id}
+                        className={`table-row ${
+                          dragOverAccountId === id ? "drag-over-row" : ""
+                        } ${draggedAccountId === id ? "dragging-row" : ""}`}
+                        draggable={
+                          !movingAccountId &&
+                          !searchActive &&
+                          !showFavorites &&
+                          !filterBox &&
+                          !filterDiscount &&
+                          minDollars === "" &&
+                          dollarAmount === ""
+                        }
+                        onDragStart={(e) => {
+                          setDraggedAccountId(id);
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", String(id));
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          if (dragOverAccountId !== id) setDragOverAccountId(id);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverAccountId === id)
+                            setDragOverAccountId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          handleDrop(id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedAccountId(null);
                           setDragOverAccountId(null);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        handleDrop(id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggedAccountId(null);
-                        setDragOverAccountId(null);
-                      }}
-                    >
-                      <td className="col-email font-medium">{acc.email}</td>
-                      <td className="col-tag">
-                        <span
-                          className={`status-badge ${acc.isHasBox ? "badge-box" : "badge-off"}`}
-                        >
-                          {acc.isHasBox ? "Yes" : "No"}
-                        </span>
-                      </td>
-                      <td className="col-tag">
-                        <span
-                          className={`status-badge ${acc.isHasDiscount ? "badge-discount" : "badge-off"}`}
-                        >
-                          {acc.isHasDiscount ? "Active" : "None"}
-                        </span>
-                      </td>
-                      <td className="col-tag">
-                        <span
-                          className={`status-badge ${acc.isBanned ? "badge-banned" : "badge-safe"}`}
-                        >
-                          {acc.isBanned ? "Banned" : "Active"}
-                        </span>
-                      </td>
-                      <td className="col-balance">{money(acc.dollar)}</td>
-                      <td className="col-actions">
-                        <div className="action-buttons">
-                          <button
-                            className={`favorite-btn ${acc.isFavorite ? "favorite-active" : ""}`}
-                            onClick={() => guarded(toggleFavorite, id)}
-                            title={
-                              acc.isFavorite
-                                ? "Remove from favorites"
-                                : "Add to favorites"
-                            }
-                            aria-label={
-                              acc.isFavorite
-                                ? "Remove from favorites"
-                                : "Add to favorites"
-                            }
+                        }}
+                      >
+                        <td className="col-email font-medium">{acc.email}</td>
+                        <td className="col-tag">
+                          <span
+                            className={`status-badge ${acc.isHasBox ? "badge-box" : "badge-off"}`}
                           >
-                            <Star
-                              size={19}
-                              fill={acc.isFavorite ? "currentColor" : "none"}
-                            />
-                          </button>
-                          <button
-                            className="row-btn"
-                            onClick={() =>
-                              setModal({ type: "edit", account: acc, id })
-                            }
-                            title="Edit account"
+                            {acc.isHasBox ? "Yes" : "No"}
+                          </span>
+                        </td>
+                        <td className="col-tag">
+                          <span
+                            className={`status-badge ${acc.isHasDiscount ? "badge-discount" : "badge-off"}`}
                           >
-                            <Pencil size={14} />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            className="row-btn row-btn-accent"
-                            onClick={() =>
-                              setModal({ type: "use", account: acc, id })
-                            }
-                            title="Use dollars"
+                            {acc.isHasDiscount ? "Active" : "None"}
+                          </span>
+                        </td>
+                        <td className="col-tag">
+                          <span
+                            className={`status-badge ${acc.isBanned ? "badge-banned" : "badge-safe"}`}
                           >
-                            <Coins size={14} />
-                            <span>Use $</span>
-                          </button>
-                          <button
-                            className="row-btn row-btn-danger icon-only"
-                            onClick={() =>
-                              setModal({ type: "delete", account: acc, id })
-                            }
-                            title="Delete account"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                            {acc.isBanned ? "Banned" : "Active"}
+                          </span>
+                        </td>
+                        <td className="col-balance">{money(acc.dollar)}</td>
+                        <td className="col-actions">
+                          <div className="action-buttons">
+                            <button
+                              className={`favorite-btn ${acc.isFavorite ? "favorite-active" : ""}`}
+                              onClick={() => guarded(toggleFavorite, id)}
+                              title={
+                                acc.isFavorite
+                                  ? "Remove from favorites"
+                                  : "Add to favorites"
+                              }
+                              aria-label={
+                                acc.isFavorite
+                                  ? "Remove from favorites"
+                                  : "Add to favorites"
+                              }
+                            >
+                              <Star
+                                size={19}
+                                fill={acc.isFavorite ? "currentColor" : "none"}
+                              />
+                            </button>
+                            <button
+                              className="row-btn"
+                              onClick={() =>
+                                setModal({ type: "edit", account: acc, id })
+                              }
+                              title="Edit account"
+                            >
+                              <Pencil size={14} />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              className="row-btn row-btn-accent"
+                              onClick={() =>
+                                setModal({ type: "use", account: acc, id })
+                              }
+                              title="Use dollars"
+                            >
+                              <Coins size={14} />
+                              <span>Use $</span>
+                            </button>
+                            <button
+                              className="row-btn row-btn-danger icon-only"
+                              onClick={() =>
+                                setModal({ type: "delete", account: acc, id })
+                              }
+                              title="Delete account"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -1053,6 +1051,37 @@ export default function App() {
         ))}
       </div>
     </div>
+  );
+}
+
+// Skeleton Row Component
+function SkeletonRow() {
+  return (
+    <tr className="table-row">
+      <td className="col-email">
+        <div className="skeleton skeleton-text" style={{ width: "70%" }}></div>
+      </td>
+      <td className="col-tag">
+        <div className="skeleton skeleton-badge"></div>
+      </td>
+      <td className="col-tag">
+        <div className="skeleton skeleton-badge"></div>
+      </td>
+      <td className="col-tag">
+        <div className="skeleton skeleton-badge"></div>
+      </td>
+      <td className="col-balance">
+        <div className="skeleton skeleton-balance"></div>
+      </td>
+      <td className="col-actions">
+        <div className="action-buttons">
+          <div className="skeleton skeleton-icon"></div>
+          <div className="skeleton skeleton-btn"></div>
+          <div className="skeleton skeleton-btn"></div>
+          <div className="skeleton skeleton-icon"></div>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -1854,4 +1883,23 @@ const CSS = `
   .controls-section { padding: 16px; }
   .stats-dashboard { grid-template-columns: 1fr; }
 }
+
+/* Skeleton Loading Animations */
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+.skeleton {
+  background: #f1f5f9;
+  background-image: linear-gradient(to right, #f1f5f9 0%, #e2e8f0 20%, #f1f5f9 40%, #f1f5f9 100%);
+  background-repeat: no-repeat;
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear forwards;
+  border-radius: 4px;
+}
+.skeleton-text { height: 16px; width: 100%; border-radius: 4px; }
+.skeleton-badge { height: 24px; width: 60px; border-radius: 999px; }
+.skeleton-balance { height: 18px; width: 80px; margin-left: auto; }
+.skeleton-icon { height: 28px; width: 28px; border-radius: 6px; }
+.skeleton-btn { height: 28px; width: 50px; border-radius: 6px; }
 `;
