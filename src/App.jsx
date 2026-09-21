@@ -1595,6 +1595,35 @@ const CSS = `
   DARK MODE OVERRIDES 
   These variables change the look when the .dark class is added to the root element.
 */
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-main);
+  border-radius: 0 8px 8px 0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 8px;
+  border: 2px solid var(--bg-main); /* Creates a padding effect */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Ensure global body background matches the theme and removes default white margins */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  transition: background-color 0.3s ease;
+}
 .ledger-root.dark {
   --bg-main: #0F172A;
   --bg-card: #1E293B;
