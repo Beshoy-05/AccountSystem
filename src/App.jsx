@@ -15,6 +15,8 @@ import {
   Users,
   Database,
   Star,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -99,6 +101,24 @@ function useToasts() {
 export default function App() {
   ensureFonts();
 
+  // Dark mode state and persistence
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("ledger-theme");
+    if (savedTheme === "dark") {
+      setIsDarkMode(true);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    setIsDarkMode((prev) => {
+      const newTheme = !prev;
+      localStorage.setItem("ledger-theme", newTheme ? "dark" : "light");
+      return newTheme;
+    });
+  };
+
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -141,7 +161,7 @@ export default function App() {
           prev.map((acc) => ({
             ...acc,
             isFavorite: favoriteIdsRef.current.has(acc.id),
-          }))
+          })),
         );
       }
     } catch {
@@ -165,8 +185,8 @@ export default function App() {
 
       const data = await res.json();
       const results = Array.isArray(data) ? data : [];
-      
-      setAccounts(results.map(acc => ({ ...acc, isFavorite: true })));
+
+      setAccounts(results.map((acc) => ({ ...acc, isFavorite: true })));
       setHasNextPage(false);
     } catch (err) {
       setLoadError(
@@ -234,7 +254,7 @@ export default function App() {
         results.map((acc) => ({
           ...acc,
           isFavorite: favoriteIdsRef.current.has(acc.id),
-        }))
+        })),
       );
 
       if (hasFilters) {
@@ -352,7 +372,7 @@ export default function App() {
         results.map((acc) => ({
           ...acc,
           isFavorite: favoriteIdsRef.current.has(acc.id),
-        }))
+        })),
       );
       setHasNextPage(false);
       setLoadError(null);
@@ -390,6 +410,7 @@ export default function App() {
     isHasBox,
     isHasDiscount,
     isBanned,
+    discription,
   }) {
     const res = await fetch(API_BASE_URL, {
       method: "POST",
@@ -400,6 +421,7 @@ export default function App() {
         isHasBox,
         isHasDiscount,
         isBanned,
+        discription,
       }),
     });
     if (!res.ok) {
@@ -422,7 +444,7 @@ export default function App() {
 
   async function editAccount(
     id,
-    { email, dollar, isHasBox, isHasDiscount, isBanned },
+    { email, dollar, isHasBox, isHasDiscount, isBanned, discription },
   ) {
     const res = await fetch(`${API_BASE_URL}/${id}`, {
       method: "PUT",
@@ -433,6 +455,7 @@ export default function App() {
         isHasBox,
         isHasDiscount,
         isBanned,
+        discription,
       }),
     });
     if (!res.ok) {
@@ -490,8 +513,8 @@ export default function App() {
       prev.map((account) =>
         account.id === id
           ? { ...account, isFavorite: !isCurrentlyFav }
-          : account
-      )
+          : account,
+      ),
     );
 
     try {
@@ -502,7 +525,7 @@ export default function App() {
       if (!res.ok) {
         const msg = await readErrorMessage(res);
         throw new Error(
-          msg || "Couldn't update favorite status. Please try again."
+          msg || "Couldn't update favorite status. Please try again.",
         );
       }
 
@@ -522,8 +545,8 @@ export default function App() {
         prev.map((account) =>
           account.id === id
             ? { ...account, isFavorite: isCurrentlyFav }
-            : account
-        )
+            : account,
+        ),
       );
 
       throw err;
@@ -603,7 +626,7 @@ export default function App() {
   const isLoading = loading || searching || favoritesLoading;
 
   return (
-    <div className="ledger-root">
+    <div className={`ledger-root ${isDarkMode ? "dark" : ""}`}>
       <style>{CSS}</style>
 
       <header className="ledger-header">
@@ -620,6 +643,14 @@ export default function App() {
         </div>
 
         <div className="header-actions">
+          <button
+            className="icon-btn"
+            onClick={toggleTheme}
+            aria-label="Toggle Theme"
+            title="Toggle Theme"
+          >
+            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <button
             className="icon-btn"
             onClick={refresh}
@@ -833,130 +864,145 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
-                  Array.from({ length: accounts.length || pageSize }).map((_, i) => (
-                    <SkeletonRow key={i} />
-                  ))
-                ) : (
-                  accounts.map((acc) => {
-                    const id = acc.id;
-                    return (
-                      <tr
-                        key={id}
-                        className={`table-row ${
-                          dragOverAccountId === id ? "drag-over-row" : ""
-                        } ${draggedAccountId === id ? "dragging-row" : ""}`}
-                        draggable={
-                          !movingAccountId &&
-                          !searchActive &&
-                          !showFavorites &&
-                          !filterBox &&
-                          !filterDiscount &&
-                          minDollars === "" &&
-                          dollarAmount === ""
-                        }
-                        onDragStart={(e) => {
-                          setDraggedAccountId(id);
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("text/plain", String(id));
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          if (dragOverAccountId !== id) setDragOverAccountId(id);
-                        }}
-                        onDragLeave={() => {
-                          if (dragOverAccountId === id)
+                {isLoading
+                  ? Array.from({ length: accounts.length || pageSize }).map(
+                      (_, i) => <SkeletonRow key={i} />,
+                    )
+                  : accounts.map((acc) => {
+                      const id = acc.id;
+                      return (
+                        <tr
+                          key={id}
+                          className={`table-row ${
+                            dragOverAccountId === id ? "drag-over-row" : ""
+                          } ${draggedAccountId === id ? "dragging-row" : ""}`}
+                          draggable={
+                            !movingAccountId &&
+                            !searchActive &&
+                            !showFavorites &&
+                            !filterBox &&
+                            !filterDiscount &&
+                            minDollars === "" &&
+                            dollarAmount === ""
+                          }
+                          onDragStart={(e) => {
+                            setDraggedAccountId(id);
+                            e.dataTransfer.effectAllowed = "move";
+                            e.dataTransfer.setData("text/plain", String(id));
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                            if (dragOverAccountId !== id)
+                              setDragOverAccountId(id);
+                          }}
+                          onDragLeave={() => {
+                            if (dragOverAccountId === id)
+                              setDragOverAccountId(null);
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            handleDrop(id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedAccountId(null);
                             setDragOverAccountId(null);
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          handleDrop(id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggedAccountId(null);
-                          setDragOverAccountId(null);
-                        }}
-                      >
-                        <td className="col-email font-medium">{acc.email}</td>
-                        <td className="col-tag">
-                          <span
-                            className={`status-badge ${acc.isHasBox ? "badge-box" : "badge-off"}`}
+                          }}
+                        >
+                          <td
+                            className="col-email font-medium"
+                            style={{
+                              cursor: "pointer",
+                              color: "var(--text-main)", // This automatically switches based on the theme!
+                              textDecoration: "none",
+                              fontWeight: "bold",
+                            }}
+                            onClick={() =>
+                              setModal({ type: "view", account: acc })
+                            }
+                            title="Click to view description"
                           >
-                            {acc.isHasBox ? "Yes" : "No"}
-                          </span>
-                        </td>
-                        <td className="col-tag">
-                          <span
-                            className={`status-badge ${acc.isHasDiscount ? "badge-discount" : "badge-off"}`}
-                          >
-                            {acc.isHasDiscount ? "Active" : "None"}
-                          </span>
-                        </td>
-                        <td className="col-tag">
-                          <span
-                            className={`status-badge ${acc.isBanned ? "badge-banned" : "badge-safe"}`}
-                          >
-                            {acc.isBanned ? "Banned" : "Active"}
-                          </span>
-                        </td>
-                        <td className="col-balance">{money(acc.dollar)}</td>
-                        <td className="col-actions">
-                          <div className="action-buttons">
-                            <button
-                              className={`favorite-btn ${acc.isFavorite ? "favorite-active" : ""}`}
-                              onClick={() => guarded(toggleFavorite, id)}
-                              title={
-                                acc.isFavorite
-                                  ? "Remove from favorites"
-                                  : "Add to favorites"
-                              }
-                              aria-label={
-                                acc.isFavorite
-                                  ? "Remove from favorites"
-                                  : "Add to favorites"
-                              }
+                            {acc.email}
+                          </td>
+                          <td className="col-tag">
+                            <span
+                              className={`status-badge ${acc.isHasBox ? "badge-box" : "badge-off"}`}
                             >
-                              <Star
-                                size={19}
-                                fill={acc.isFavorite ? "currentColor" : "none"}
-                              />
-                            </button>
-                            <button
-                              className="row-btn"
-                              onClick={() =>
-                                setModal({ type: "edit", account: acc, id })
-                              }
-                              title="Edit account"
+                              {acc.isHasBox ? "Yes" : "No"}
+                            </span>
+                          </td>
+                          <td className="col-tag">
+                            <span
+                              className={`status-badge ${acc.isHasDiscount ? "badge-discount" : "badge-off"}`}
                             >
-                              <Pencil size={14} />
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              className="row-btn row-btn-accent"
-                              onClick={() =>
-                                setModal({ type: "use", account: acc, id })
-                              }
-                              title="Use dollars"
+                              {acc.isHasDiscount ? "Active" : "None"}
+                            </span>
+                          </td>
+                          <td className="col-tag">
+                            <span
+                              className={`status-badge ${acc.isBanned ? "badge-banned" : "badge-safe"}`}
                             >
-                              <Coins size={14} />
-                              <span>Use $</span>
-                            </button>
-                            <button
-                              className="row-btn row-btn-danger icon-only"
-                              onClick={() =>
-                                setModal({ type: "delete", account: acc, id })
-                              }
-                              title="Delete account"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
+                              {acc.isBanned ? "Banned" : "Active"}
+                            </span>
+                          </td>
+                          <td className="col-balance">{money(acc.dollar)}</td>
+                          <td className="col-actions">
+                            <div className="action-buttons">
+                              <button
+                                className={`favorite-btn ${acc.isFavorite ? "favorite-active" : ""}`}
+                                onClick={() => guarded(toggleFavorite, id)}
+                                title={
+                                  acc.isFavorite
+                                    ? "Remove from favorites"
+                                    : "Add to favorites"
+                                }
+                                aria-label={
+                                  acc.isFavorite
+                                    ? "Remove from favorites"
+                                    : "Add to favorites"
+                                }
+                              >
+                                <Star
+                                  size={19}
+                                  fill={
+                                    acc.isFavorite ? "currentColor" : "none"
+                                  }
+                                />
+                              </button>
+                              <button
+                                className="row-btn"
+                                onClick={() =>
+                                  setModal({ type: "edit", account: acc, id })
+                                }
+                                title="Edit account"
+                              >
+                                <Pencil size={14} />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                className="row-btn row-btn-accent"
+                                onClick={() =>
+                                  setModal({ type: "use", account: acc, id })
+                                }
+                                title="Use dollars"
+                              >
+                                <Coins size={14} />
+                                <span>Use $</span>
+                              </button>
+                              <button
+                                className="row-btn row-btn-danger icon-only"
+                                onClick={() =>
+                                  setModal({ type: "delete", account: acc, id })
+                                }
+                                title="Delete account"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
               </tbody>
             </table>
           </div>
@@ -1036,6 +1082,9 @@ export default function App() {
           onClose={() => setModal(null)}
           onConfirm={() => guarded(deleteAccount, modal.id)}
         />
+      )}
+      {modal?.type === "view" && (
+        <ViewModal account={modal.account} onClose={() => setModal(null)} />
       )}
 
       <div className="toast-stack">
@@ -1123,6 +1172,7 @@ function AddModal({ onClose, onSubmit }) {
   const [isHasBox, setIsHasBox] = useState(false);
   const [isHasDiscount, setIsHasDiscount] = useState(false);
   const [isBanned, setIsBanned] = useState(false);
+  const [discription, setDiscription] = useState("");
   const [busy, setBusy] = useState(false);
 
   const handleDollarChange = (e) => {
@@ -1139,6 +1189,7 @@ function AddModal({ onClose, onSubmit }) {
       isHasBox,
       isHasDiscount,
       isBanned,
+      discription,
     });
     setBusy(false);
   }
@@ -1168,6 +1219,24 @@ function AddModal({ onClose, onSubmit }) {
               placeholder="0.00"
             />
           </div>
+        </label>
+        <label>
+          Description
+          <textarea
+            value={discription}
+            onChange={(e) => setDiscription(e.target.value)}
+            placeholder="Optional account description..."
+            rows={3}
+            style={{
+              fontFamily: "Inter, sans-serif",
+              padding: "12px 14px",
+              borderRadius: "8px",
+              border: "1px solid var(--border-color)",
+              background: "var(--bg-main)",
+              color: "var(--text-main)",
+              resize: "vertical",
+            }}
+          />
         </label>
         <div className="toggle-row">
           <ToggleField
@@ -1209,6 +1278,14 @@ function EditModal({ account, onClose, onSubmit }) {
   const [isHasBox, setIsHasBox] = useState(!!account.isHasBox);
   const [isHasDiscount, setIsHasDiscount] = useState(!!account.isHasDiscount);
   const [isBanned, setIsBanned] = useState(!!account.isBanned);
+
+  const initialDesc =
+    account.discription ||
+    account.Discription ||
+    account.description ||
+    account.Description ||
+    "";
+  const [discription, setDiscription] = useState(initialDesc);
   const [busy, setBusy] = useState(false);
 
   const handleDollarChange = (e) => {
@@ -1225,6 +1302,7 @@ function EditModal({ account, onClose, onSubmit }) {
       isHasBox,
       isHasDiscount,
       isBanned,
+      discription,
     });
     setBusy(false);
   }
@@ -1253,6 +1331,24 @@ function EditModal({ account, onClose, onSubmit }) {
               placeholder="0.00"
             />
           </div>
+        </label>
+        <label>
+          Description
+          <textarea
+            value={discription}
+            onChange={(e) => setDiscription(e.target.value)}
+            placeholder="Optional account description..."
+            rows={3}
+            style={{
+              fontFamily: "Inter, sans-serif",
+              padding: "12px 14px",
+              borderRadius: "8px",
+              border: "1px solid var(--border-color)",
+              background: "var(--bg-main)",
+              color: "var(--text-main)",
+              resize: "vertical",
+            }}
+          />
         </label>
         <div className="toggle-row">
           <ToggleField
@@ -1391,6 +1487,59 @@ function DeleteModal({ account, onClose, onConfirm }) {
   );
 }
 
+function ViewModal({ account, onClose }) {
+  const displayDescription =
+    account.discription ||
+    account.Discription ||
+    account.description ||
+    account.Description;
+
+  return (
+    <ModalShell title="Account Details" onClose={onClose}>
+      <div className="modal-form">
+        <div className="balance-preview">
+          <span>Account Email</span>
+          <strong style={{ color: "var(--text-main)" }}>{account.email}</strong>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <span
+            style={{
+              fontSize: "14px",
+              fontWeight: "500",
+              color: "var(--text-main)",
+            }}
+          >
+            Description
+          </span>
+          <div
+            style={{
+              padding: "16px",
+              background: "var(--bg-main)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border-color)",
+              minHeight: "80px",
+              color: displayDescription
+                ? "var(--text-main)"
+                : "var(--text-muted)",
+              whiteSpace: "pre-wrap",
+              lineHeight: "1.5",
+            }}
+          >
+            {displayDescription || "No description provided for this account."}
+          </div>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: "24px" }}>
+          <button type="button" className="primary-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 function ToggleField({ label, checked, onChange }) {
   return (
     <button
@@ -1442,6 +1591,38 @@ const CSS = `
   --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 
+  DARK MODE OVERRIDES 
+  These variables change the look when the .dark class is added to the root element.
+*/
+.ledger-root.dark {
+  --bg-main: #0F172A;
+  --bg-card: #1E293B;
+  --text-main: #F1F5F9;
+  --text-muted: #94A3B8;
+  --border-color: #334155;
+  --primary-light: rgba(59, 130, 246, 0.15);
+  --danger-light: rgba(239, 68, 68, 0.15);
+  --success-light: rgba(16, 185, 129, 0.15);
+}
+
+/* Fixes for hardcoded colors in dark mode */
+.ledger-root.dark .ghost-btn:hover { background: #334155; }
+.ledger-root.dark .search-input:focus-within { background: var(--bg-card); }
+.ledger-root.dark .min-dollar input:focus { background: var(--bg-card); }
+.ledger-root.dark .ledger-table thead th { background: #0F172A; }
+.ledger-root.dark .badge-off { background: #334155; color: #CBD5E1; }
+.ledger-root.dark .badge-box { background: rgba(67, 56, 202, 0.3); color: #818CF8; }
+.ledger-root.dark .badge-discount { background: var(--success-light); color: #34D399; }
+.ledger-root.dark .badge-safe { background: var(--success-light); color: #34D399; }
+.ledger-root.dark .badge-banned { background: var(--danger-light); color: #F87171; }
+.ledger-root.dark .row-btn:hover { background: #334155; }
+.ledger-root.dark .modal-close-btn { background: #334155; }
+.ledger-root.dark .modal-form input:focus, .ledger-root.dark .modal-form textarea:focus { background: var(--bg-main); }
+.ledger-root.dark .skeleton { background-image: linear-gradient(to right, #1E293B 0%, #334155 20%, #1E293B 40%, #1E293B 100%); }
+.ledger-root.dark .balance-preview { background: #0F172A; border-color: #334155; }
+.ledger-root.dark .toggle-track { background: #475569; }
+
 * {
   box-sizing: border-box;
 }
@@ -1458,6 +1639,7 @@ const CSS = `
   color: var(--text-main);
   font-family: 'Inter', system-ui, sans-serif;
   padding: 40px clamp(20px, 5vw, 60px) 80px;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 /* Header */
@@ -1626,7 +1808,7 @@ const CSS = `
   justify-content: center;
 }
 .wallet-icon { background: var(--primary); color: white; }
-.users-icon { background: #E2E8F0; color: var(--text-muted); }
+.users-icon { background: var(--primary-light); color: var(--primary); }
 .db-icon { background: #FDE68A; color: #92400E; } 
 
 .stat-info { display: flex; flex-direction: column; gap: 4px; }
@@ -1668,7 +1850,7 @@ const CSS = `
   font-size: 13px; font-weight: 500;
   cursor: pointer; transition: var(--transition);
 }
-.chip:hover { background: #E2E8F0; }
+.chip:hover { background: var(--bg-card); border-color: var(--text-muted); }
 .chip-on { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
 
 .min-dollar { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 500; color: var(--text-muted); }
@@ -1683,6 +1865,7 @@ const CSS = `
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-main);
+  color: var(--text-main);
   font-family: 'IBM Plex Mono', monospace;
   font-size: 14px;
   transition: var(--transition);
